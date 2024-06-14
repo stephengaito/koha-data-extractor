@@ -1,0 +1,30 @@
+#!.venv/bin/python
+
+import os
+import yaml
+
+import mariadb
+
+# see: https://mariadb.com/kb/en/sql-statements/
+
+from kohaData.configuration import dbConfig
+
+reportQuery = """
+SELECT dateaccessioned
+  FROM items
+  WHERE dateaccessioned='0000-00-00'
+"""
+
+updateQuery = """
+UPDATE items
+  SET   dateaccessioned='2000-01-01'
+  WHERE dateaccessioned='0000-00-00'
+"""
+
+print("getting report data")
+db = mariadb.connect(**dbConfig)
+cursor = db.cursor()
+#print(reportQuery)
+cursor.execute(reportQuery)
+result = cursor.fetchall()
+print(yaml.dump(result))

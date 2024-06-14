@@ -1,0 +1,22 @@
+[project]
+name = "kohaData"
+version = "0.0.1"
+description = "Some simple python scripts to extract data from a Koha database"
+authors = [
+    {name = "Stephen Gaito", email = "stephen@perceptisys.co.uk"},
+]
+dependencies = [
+    "pyyaml>=6.0",
+    "mariadb>=1.1.10",
+]
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+#[project.scripts]
+#kohaLibTools = "kohaLibTools.cli:main"
+
+[build-system]
+requires = ["pdm-pep517>=1.0.0"]
+build-backend = "pdm.pep517.api"
+
+[tool.pdm]
