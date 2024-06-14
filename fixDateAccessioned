@@ -24,7 +24,14 @@ UPDATE items
 print("getting report data")
 db = mariadb.connect(**dbConfig)
 cursor = db.cursor()
-#print(reportQuery)
+
+print(updateQuery)
+cursor.execute(updateQuery)
+db.commit()
+
+print(reportQuery)
 cursor.execute(reportQuery)
 result = cursor.fetchall()
 print(yaml.dump(result))
+
+db.close()
