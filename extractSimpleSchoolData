@@ -1,0 +1,135 @@
+#!.venv/bin/python
+
+import os
+import sqlite3
+import yaml
+
+import mariadb
+
+# see: https://mariadb.com/kb/en/sql-statements/
+# see: https://www.sqlite.org/lang.html
+
+from kohaData.configuration import dbConfig
+
+class2id = {}
+
+def getClassData(kohaDb, sslDb) :
+  extractQuery = "SELECT * FROM categories"
+  dropTable = "DROP TABLE IF EXISTS classes"
+  createTable = """
+    CREATE TABLE IF NOT EXISTS classes (
+      id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    	name  TEXT NOT NULL
+    )
+  """
+  insertData = "INSERT INTO classes (name) VALUES ('{0}')"
+
+  sslCursor  = sslDb.cursor()
+  sslCursor.execute(dropTable)
+  sslCursor.execute(createTable)
+
+  kohaCursor = kohaDb.cursor()
+  kohaCursor.execute(extractQuery)
+  results = kohaCursor.fetchall()
+  classId = 1
+  for aResult in results :
+    className = aResult[1]
+    print(className)
+    class2id[className] = classId
+    classId += 1
+    #print(insertData.format(className))
+    sslDb.execute(insertData.format(className))
+  sslDb.commit()
+
+def getPeopleData(kohaDb, sslDb) :
+  extractQuery = """
+    SELECT
+      firstname, CONCAT(middle_name, othernames), surname,
+      categories.description, sort1
+    FROM borrowers, categories
+    WHERE borrowers.categorycode = categories.categorycode
+  """
+  dropTable = "DROP TABLE IF EXISTS borrowers"
+  createTable = """
+    CREATE TABLE IF NOT EXISTS borrowers (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    	firstName  TEXT NOT NULL,
+    	otherNames TEXT,
+    	familyName TEXT NOT NULL,
+    	cohort     INTEGER NOT NULL,
+    	classId    INTEGER NOT NULL
+    )
+  """
+  insertData = """
+    INSERT INTO borrowers
+      (firstName, otherNames, familyName, cohort, classId)
+    VALUES
+      ('{firstName}', '{otherNames}', '{familyName}', {cohort}, {classId})
+  """
+  sslCursor  = sslDb.cursor()
+  sslCursor.execute(dropTable)
+  sslCursor.execute(createTable)
+
+  kohaCursor = kohaDb.cursor()
+  kohaCursor.execute(extractQuery)
+  results = kohaCursor.fetchall()
+  for aResult in results :
+    sslValues = {}
+    sslValues['firstName']  = aResult[0]
+    otherNames = aResult[1]
+    if not otherNames : otherNames = ''
+    sslValues['otherNames'] = otherNames
+    sslValues['familyName'] = aResult[2]
+    sslValues['classId']  = class2id[aResult[3]]
+    sslValues['class']  = aResult[3]
+    sslValues['cohort'] = aResult[4]
+    if not sslValues['cohort'] : sslValues['cohort'] = 2000
+    #print(insertData.format(**sslValues))
+    sslCursor.execute(insertData.format(**sslValues))
+  sslDb.commit()
+
+
+def getItemInfoData(kohaDb, sshDb) :
+  extractQuery = """
+    SELECT
+      firstname, CONCAT(middle_name, othernames), surname,
+      categories.description, sort1
+    FROM borrowers, categories
+    WHERE borrowers.categorycode = categories.categorycode
+  """
+  dropTable = "DROP TABLE IF EXISTS itemInfo"
+  createTable = """
+    CREATE TABLE IF NOT EXISTS itemInfo (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      isbn      TEXT,
+      dewey     TEXT NOT NULL,
+    	series    TEXT,
+    	title     TEXT NOT NULL,
+    	authors   TEXT,
+    	publisher TEXT,
+    	type      TEXT NOT NULL,
+    	keywords  TEXT,
+    	summary   TEXT
+    )
+  """
+  insertData = """
+    INSERT INTO borrowers
+      (firstName, otherNames, familyName, cohort, classId)
+    VALUES
+      ('{firstName}', '{otherNames}', '{familyName}', {cohort}, {classId})
+  """
+  sslCursor  = sslDb.cursor()
+  sslCursor.execute(dropTable)
+  sslCursor.execute(createTable)
+
+  kohaCursor = kohaDb.cursor()
+
+kohaDb = mariadb.connect(**dbConfig)
+sslDb  = sqlite3.connect('sslDb.sqlite')
+
+getClassData(kohaDb, sslDb)
+getPeopleData(kohaDb, sslDb)
+getItemInfoData(kohaDb, sslDb)
+
+sslDb.close()
+kohaDb.close()
