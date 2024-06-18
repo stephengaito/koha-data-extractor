@@ -1,5 +1,6 @@
 #!.venv/bin/python
 
+import datetime
 import os
 import sqlite3
 import yaml
@@ -11,125 +12,418 @@ import mariadb
 
 from kohaData.configuration import dbConfig
 
-class2id = {}
+##################################################################
+classes    = {}
+classTable = {
+  'data'   : classes,
+  'dbName' : 'classes',
+  'query'  : "SELECT * FROM categories",
+  'create' : """
+      CREATE TABLE IF NOT EXISTS classes (
+        id    INTEGER PRIMARY KEY AUTOINCREMENT,
+      	name  TEXT NOT NULL
+      )
+    """,
+  'insert' : "INSERT INTO classes (name) VALUES ('{className}')",
+}
+def processAClass(aResult) :
+  classCode = aResult[0]
+  className = aResult[1]
+  sslValues = {
+    'className' : className
+  }
+  classes[classCode] = sslValues
 
-def getClassData(kohaDb, sslDb) :
-  extractQuery = "SELECT * FROM categories"
-  dropTable = "DROP TABLE IF EXISTS classes"
-  createTable = """
-    CREATE TABLE IF NOT EXISTS classes (
-      id    INTEGER PRIMARY KEY AUTOINCREMENT,
-    	name  TEXT NOT NULL
-    )
-  """
-  insertData = "INSERT INTO classes (name) VALUES ('{0}')"
+classTable['process'] = processAClass
 
-  sslCursor  = sslDb.cursor()
-  sslCursor.execute(dropTable)
-  sslCursor.execute(createTable)
+classOrder = {
+  'OAK'    : 1,
+  'ASH'    : 2,
+  'DUDLEY' : 3,
+  'WALLER' : 4,
+  'WISE'   : 5,
+  'LEAVER' : 6,
+  'STAFF'  : 7
+}
 
-  kohaCursor = kohaDb.cursor()
-  kohaCursor.execute(extractQuery)
+def sortClasses(aDict) :
+  return sorted(
+    aDict,
+    key=lambda anIndex : classOrder[anIndex]
+  )
+
+classTable['sortOrder'] = sortClasses
+
+##################################################################
+borrowers      = {}
+borrowersTable = {
+  'data'   : borrowers,
+  'dbName' : 'borrowers',
+  'query'  : """
+      SELECT
+        borrowernumber,
+        firstname, CONCAT(middle_name, othernames), surname,
+        categories.categorycode, categories.description, sort1
+      FROM borrowers, categories
+      WHERE borrowers.categorycode = categories.categorycode
+    """,
+  'create' : """
+      CREATE TABLE IF NOT EXISTS borrowers (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      	firstName  TEXT NOT NULL,
+      	otherNames TEXT,
+      	familyName TEXT NOT NULL,
+      	cohort     INTEGER NOT NULL,
+      	classId    INTEGER NOT NULL
+      )
+    """,
+  'insert' : """
+        INSERT INTO borrowers
+          (firstName, otherNames, familyName, cohort, classId)
+        VALUES
+          ('{firstName}', '{otherNames}', '{familyName}', {cohort}, {classId})
+      """,
+}
+def processABorrower(aResult) :
+  borrowerCode = aResult[0]
+  sslValues = {}
+  sslValues['firstName']  = aResult[1]
+  otherNames = aResult[2]
+  if not otherNames : otherNames = ''
+  sslValues['otherNames'] = otherNames
+  sslValues['familyName'] = aResult[3]
+  sslValues['classId']  = classes[aResult[4]]['rowNum']
+  sslValues['class']  = aResult[5]
+  sslValues['cohort'] = aResult[6]
+  if not sslValues['cohort'] : sslValues['cohort'] = 2000
+  borrowers[borrowerCode] = sslValues
+
+borrowersTable['process'] = processABorrower
+
+def sortBorrowers(aDict) :
+  return sorted(aDict.keys())
+
+borrowersTable['sortOrder'] = sortBorrowers
+
+##################################################################
+itemsInfo     = {}
+itemsInfoTable = {
+  'data'   : itemsInfo,
+  'dbName' : 'itemsInfo',
+  'query'  : """
+      SELECT
+        biblio.biblionumber,
+        biblio.author,
+        biblio.title, biblio.subtitle,
+        biblioitems.illus,
+        biblio.seriestitle,
+        biblioitems.publishercode,
+        biblioitems.volume,
+        biblio.abstract,
+        biblioitems.isbn,
+        biblio_metadata.metadata
+      FROM biblio, biblioitems, biblio_metadata
+      WHERE biblio.biblionumber = biblioitems.biblionumber
+        AND biblio.biblionumber = biblio_metadata.biblionumber
+   """,
+  'create' : """
+      CREATE TABLE IF NOT EXISTS itemsInfo (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        isbn      TEXT,
+        dewey     TEXT,
+      	series    TEXT,
+      	title     TEXT,
+      	authors   TEXT,
+      	publisher TEXT,
+      	type      TEXT,
+      	keywords  TEXT,
+      	summary   TEXT
+      )
+    """,
+  'insert' : """
+      INSERT INTO itemsInfo
+        (isbn, dewey, series, title, authors, publisher, type, keywords, summary)
+      VALUES
+        ('{isbn}', '{ddc}', '{seriesTitle}', '{title}', '{authors}', '{publisher}', '{itemType}', '{keywords}', '{summary}')
+    """,
+}
+
+def cleanXML(aLine) :
+  aLine = aLine.replace('<subfield code="a">','')
+  return aLine.replace('</subfield>','').strip()
+
+def getDataFromXML(theXML) :
+  if not theXML : return ''
+  someLines = theXML.splitlines()
+  data = {}
+  while someLines :
+    aLine = someLines.pop(0)
+    if 'tag="082"' in aLine :
+      data['ddc'] = cleanXML(someLines.pop(0))
+    if 'tag="520"' in aLine :
+      data['summary'] = cleanXML(someLines.pop(0))
+    if 'tag="650"' in aLine :
+      data['keywords'] = cleanXML(someLines.pop(0))
+  return data
+
+def singleQuote(aStr) :
+  return aStr.replace("'", "\'\'")
+
+def processAnItemInfo(aResult) :
+  aResult = list(aResult)
+  for aFieldNum in range(len(aResult)) :
+    if not aResult[aFieldNum] : aResult[aFieldNum] = ''
+    aResult[aFieldNum] = str(aResult[aFieldNum])
+  #print("--------")
+  #print(yaml.dump(aResult))
+  biblioNumber = aResult[0]
+  author       = aResult[1]
+  title        = aResult[2]
+  subTitle     = aResult[3]
+  illus        = aResult[4]
+  seriesTitle  = aResult[5]
+  publisher    = aResult[6]
+  volume       = aResult[7]
+  abstract     = aResult[8]
+  isbn         = aResult[9]
+  metaDataXML  = aResult[10]
+
+  metaData = getDataFromXML(metaDataXML)
+  ddc = ''
+  if 'ddc'      in metaData : ddc      = metaData['ddc']
+  keywords = ''
+  if 'keywords' in metaData : keywords = metaData['keywords']
+  summary = ''
+  if 'summary'  in metaData : summary  = metaData['summary']
+
+  # merge seriesTitle with volume
+  if volume : seriesTitle = seriesTitle + ' ' + volume
+  seriesTitle = seriesTitle.strip()
+
+  # merge abstract with summary
+  if abstract : summary = summary + ' ' + abstract
+  summary = summary.strip()
+
+  # merge the subTitle with the title
+  if subTitle : title = title + ' ' + subTitle
+
+  # sanitize the isbn
+  if 'unknown' in isbn : isbn = ''
+
+  sslValues = {}
+  sslValues['authors']  = singleQuote(author)
+  sslValues['title'] = singleQuote(title)
+  sslValues['seriesTitle']  = singleQuote(seriesTitle)
+  sslValues['publisher'] = singleQuote(publisher)
+  sslValues['keywords'] = singleQuote(keywords)
+  sslValues['summary']  = singleQuote(summary)
+  sslValues['isbn'] = isbn
+  sslValues['ddc'] = ddc
+  sslValues['itemType'] = illus
+  itemsInfo[biblioNumber] = sslValues
+
+itemsInfoTable['process'] = processAnItemInfo
+
+def sortItemsInfo(aDict) :
+  return sorted(aDict.keys())
+
+itemsInfoTable['sortOrder'] = sortItemsInfo
+
+##################################################################
+itemsPhysical = {}
+itemsPhysicalTable = {
+  'data'   : itemsPhysical,
+  'dbName' : 'itemsPhysical',
+  'query'  : """
+      SELECT
+        itemnumber, biblionumber, barcode,
+        dateaccessioned, datelastborrowed, datelastseen,
+        notforloan, damaged, itemlost, withdrawn
+      FROM items
+    """,
+  'create' : """
+      CREATE TABLE IF NOT EXISTS itemsPhysical (
+        id  INTEGER PRIMARY KEY AUTOINCREMENT,
+        itemsInfoId  INTEGER,
+        barCode      TEXT,
+        dateAdded    DATE,
+        dateBorrowed DATE,
+        dateLastSeen DATE,
+        status       TEXT
+      )
+    """,
+  'insert' : """
+      INSERT INTO itemsPhysical
+        (itemsInfoId, barCode, dateAdded, dateBorrowed, dateLastseen, status)
+      VALUES
+        ({itemsInfoId}, '{barCode}', '{dateAdded}', '{dateBorrowed}', '{dateLastSeen}', '{status}')
+    """,
+}
+def processAnItemPhysical(aResult) :
+  itemNumber   = aResult[0]
+  biblioNumber = str(aResult[1])
+  barCode      = aResult[2]
+  dateAdded    = aResult[3]
+  dateBorrowed = aResult[4]
+  dateLastSeen = str(aResult[5]).split()[0]
+  notForLoan   = aResult[6]
+  damaged      = aResult[7]
+  lost         = aResult[8]
+  withdrawn    = aResult[9]
+
+  if biblioNumber not in itemsInfo :
+    print("----------------------------------")
+    print("NOT FOUND: ")
+    print(yaml.dump(aResult))
+    return
+
+  # compute the status
+  status = ''
+  if notForLoan : status = status + 'not on loan;'
+  if damaged    : status = status + 'damaged;'
+  if lost       : status = status + 'lost;'
+  if withdrawn  : status = status + 'withdrawn;'
+  status = status.strip().strip(';')
+
+  sslValues = {}
+  sslValues['itemsInfoId']   = itemsInfo[biblioNumber]['rowNum']
+  sslValues['barCode']      = barCode
+  sslValues['dateAdded']    = dateAdded
+  sslValues['dateBorrowed'] = dateBorrowed
+  sslValues['dateLastSeen'] = dateLastSeen
+  sslValues['status']       = status
+  itemsPhysical[itemNumber] = sslValues
+
+itemsPhysicalTable['process'] = processAnItemPhysical
+
+def sortItemsPhysical(aDict) :
+  return sorted(aDict.keys())
+
+itemsPhysicalTable['sortOrder'] = sortItemsPhysical
+
+##################################################################
+itemsBorrowed = {}
+itemsBorrowedTable = {
+  'data'   : itemsBorrowed,
+  'dbName' : 'itemsBorrowed',
+  'query'  : """
+      SELECT
+        issue_id, borrowernumber, itemnumber,
+        date_due, issuedate
+      FROM issues
+    """,
+  'create' : """
+      CREATE TABLE IF NOT EXISTS itemsBorrowed (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        borrowersId     INTEGER,
+        itemsPhysicalId INTEGER,
+        dateBorrowed    DATE,
+        dateDue         DATE
+      )
+    """,
+  'insert' : """
+      INSERT INTO itemsBorrowed
+        (borrowersId, itemsPhysicalId, dateBorrowed, dateDue)
+      VALUES
+        ({borrowerId}, {itemsPhysicalId}, '{dateBorrowed}', '{dateDue}')
+    """
+}
+def processAnItemBorrowed(aResult) :
+  issueNumber    = aResult[0]
+  borrowerNumber = aResult[1]
+  itemNumber     = aResult[2]
+  dateDue        = str(aResult[3]).split()[0]
+  dateBorrowed   = str(aResult[4]).split()[0]
+
+  if borrowerNumber not in borrowers :
+    print("----------------------------------")
+    print("NOT FOUND:")
+    print(yaml.dump(aResult))
+    return
+
+  if itemNumber not in itemsPhysical :
+    print("----------------------------------")
+    print("NOT FOUND:")
+    print(yaml.dump(aResult))
+    return
+
+  # fix broken dates (due to initial error setting up Koha)
+  if dateDue == dateBorrowed :
+    dateDue = aResult[4] + datetime.timedelta(days=7)
+    dateDue = str(dateDue).split()[0]
+
+  sslValues = {}
+  sslValues['borrowerId']      = borrowers[borrowerNumber]['rowNum']
+  sslValues['itemsPhysicalId'] = itemsPhysical[itemNumber]['rowNum']
+  sslValues['dateDue']         = dateDue
+  sslValues['dateBorrowed']    = dateBorrowed
+  itemsBorrowed[issueNumber]   = sslValues
+
+itemsBorrowedTable['process'] = processAnItemBorrowed
+
+def sortItemsBorrowed(aDict) :
+  return sorted(aDict.keys())
+
+itemsBorrowedTable['sortOrder'] = sortItemsBorrowed
+
+##################################################################
+tables = [
+  classTable,
+  borrowersTable,
+  itemsInfoTable,
+  itemsPhysicalTable,
+  itemsBorrowedTable
+]
+
+kohaDb     = mariadb.connect(**dbConfig)
+kohaCursor = kohaDb.cursor()
+
+sslDb      = sqlite3.connect('sslDb.sqlite')
+sslCursor  = sslDb.cursor()
+
+for aTable in tables :
+  print("----------------------------------")
+  print(aTable['dbName'])
+  print(aTable['query'])
+  kohaCursor.execute(aTable['query'])
   results = kohaCursor.fetchall()
-  classId = 1
+  numResults = 0
   for aResult in results :
-    className = aResult[1]
-    print(className)
-    class2id[className] = classId
-    classId += 1
-    #print(insertData.format(className))
-    sslDb.execute(insertData.format(className))
+    aTable['process'](aResult)
+    numResults += 1
+  print(f"numResults = {numResults}")
+
+  sslCursor.execute(f"DROP TABLE IF EXISTS {aTable['dbName']}")
+  sslCursor.execute(aTable['create'])
+
+  if not aTable['insert'] : continue
+  rowNum = 1
+  sortOrder = aTable['sortOrder'](aTable['data'])
+  for aKey in sortOrder :
+    aRowName = aKey
+    aRowData = aTable['data'][aKey]
+    insertCmd = aTable['insert'].format(**aRowData)
+    try :
+      sslCursor.execute(insertCmd)
+    except Exception as err:
+      print("--------------------------------------")
+      print(repr(err))
+      print(yaml.dump(aRowData))
+      print(insertCmd)
+    aRowData['rowNum'] = rowNum
+    rowNum += 1
   sslDb.commit()
-
-def getPeopleData(kohaDb, sslDb) :
-  extractQuery = """
-    SELECT
-      firstname, CONCAT(middle_name, othernames), surname,
-      categories.description, sort1
-    FROM borrowers, categories
-    WHERE borrowers.categorycode = categories.categorycode
-  """
-  dropTable = "DROP TABLE IF EXISTS borrowers"
-  createTable = """
-    CREATE TABLE IF NOT EXISTS borrowers (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    	firstName  TEXT NOT NULL,
-    	otherNames TEXT,
-    	familyName TEXT NOT NULL,
-    	cohort     INTEGER NOT NULL,
-    	classId    INTEGER NOT NULL
-    )
-  """
-  insertData = """
-    INSERT INTO borrowers
-      (firstName, otherNames, familyName, cohort, classId)
-    VALUES
-      ('{firstName}', '{otherNames}', '{familyName}', {cohort}, {classId})
-  """
-  sslCursor  = sslDb.cursor()
-  sslCursor.execute(dropTable)
-  sslCursor.execute(createTable)
-
-  kohaCursor = kohaDb.cursor()
-  kohaCursor.execute(extractQuery)
-  results = kohaCursor.fetchall()
-  for aResult in results :
-    sslValues = {}
-    sslValues['firstName']  = aResult[0]
-    otherNames = aResult[1]
-    if not otherNames : otherNames = ''
-    sslValues['otherNames'] = otherNames
-    sslValues['familyName'] = aResult[2]
-    sslValues['classId']  = class2id[aResult[3]]
-    sslValues['class']  = aResult[3]
-    sslValues['cohort'] = aResult[4]
-    if not sslValues['cohort'] : sslValues['cohort'] = 2000
-    #print(insertData.format(**sslValues))
-    sslCursor.execute(insertData.format(**sslValues))
-  sslDb.commit()
-
-
-def getItemInfoData(kohaDb, sshDb) :
-  extractQuery = """
-    SELECT
-      firstname, CONCAT(middle_name, othernames), surname,
-      categories.description, sort1
-    FROM borrowers, categories
-    WHERE borrowers.categorycode = categories.categorycode
-  """
-  dropTable = "DROP TABLE IF EXISTS itemInfo"
-  createTable = """
-    CREATE TABLE IF NOT EXISTS itemInfo (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      isbn      TEXT,
-      dewey     TEXT NOT NULL,
-    	series    TEXT,
-    	title     TEXT NOT NULL,
-    	authors   TEXT,
-    	publisher TEXT,
-    	type      TEXT NOT NULL,
-    	keywords  TEXT,
-    	summary   TEXT
-    )
-  """
-  insertData = """
-    INSERT INTO borrowers
-      (firstName, otherNames, familyName, cohort, classId)
-    VALUES
-      ('{firstName}', '{otherNames}', '{familyName}', {cohort}, {classId})
-  """
-  sslCursor  = sslDb.cursor()
-  sslCursor.execute(dropTable)
-  sslCursor.execute(createTable)
-
-  kohaCursor = kohaDb.cursor()
-
-kohaDb = mariadb.connect(**dbConfig)
-sslDb  = sqlite3.connect('sslDb.sqlite')
-
-getClassData(kohaDb, sslDb)
-getPeopleData(kohaDb, sslDb)
-getItemInfoData(kohaDb, sslDb)
 
 sslDb.close()
 kohaDb.close()
+
+#print("-----------------------------------------------------")
+#print(yaml.dump(classes))
+#print("-----------------------------------------------------")
+#print(yaml.dump(borrowers))
+#print("-----------------------------------------------------")
+#print(yaml.dump(itemsInfo))
+#print("-----------------------------------------------------")
+#print(yaml.dump(itemsPhysical))
+#print("-----------------------------------------------------")
+#print(yaml.dump(itemsBorrowed))

@@ -1,0 +1,43 @@
+#!.venv/bin/python
+
+import os
+import sqlite3
+import yaml
+
+import mariadb
+
+# see: https://mariadb.com/kb/en/sql-statements/
+# see: https://www.sqlite.org/lang.html
+
+from kohaData.configuration import dbConfig
+
+def getDDCfromXML(theXML) :
+  someLines = theXML.splitlines()
+  while someLines :
+    aLine = someLines.pop(0)
+    if 'tag="082"' in aLine :
+      aLine = someLines.pop(0)
+      aLine = aLine.replace('<subfield code="a">','')
+      aLine = aLine.replace('</subfield>','').strip()
+      if 'datafield' in aLine :
+        print(theXML)
+      return aLine
+  return ''
+
+kohaDb     = mariadb.connect(**dbConfig)
+kohaCursor = kohaDb.cursor()
+
+kohaCursor.execute("""
+  SELECT
+    author, title, biblio_metadata.metadata
+  FROM biblio, biblio_metadata
+  WHERE biblio.biblionumber = biblio_metadata.biblionumber
+""")
+results = kohaCursor.fetchall()
+for aResult in results :
+  author = aResult[0]
+  title  = aResult[1]
+  xml    = aResult[2]
+  print("===================================")
+  print(getDDCfromXML(aResult[2]))
+kohaDb.close()
