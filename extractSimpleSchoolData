@@ -20,11 +20,20 @@ classTable = {
   'query'  : "SELECT * FROM categories",
   'create' : """
       CREATE TABLE IF NOT EXISTS classes (
-        id    INTEGER PRIMARY KEY AUTOINCREMENT,
-      	name  TEXT NOT NULL
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      	name       TEXT NOT NULL,
+      	classOrder INTEGER,
+      	desc       TEXT,
+      	colour     TEXT
       )
     """,
-  'insert' : "INSERT INTO classes (name) VALUES ('{className}')",
+  'insert' : """
+      INSERT INTO classes (
+        name, classOrder, desc, colour
+      ) VALUES (
+        '{className}', {rowNum}, '', ''
+      )
+    """,
 }
 def processAClass(aResult) :
   classCode = aResult[0]
@@ -395,6 +404,9 @@ for aTable in tables :
 
   sslCursor.execute(f"DROP TABLE IF EXISTS {aTable['dbName']}")
   sslCursor.execute(aTable['create'])
+  # see: https://www.sqlite.org/autoinc.html
+  #sslCursor.execute(f"UPDATE SQLITE_SEQUENCE SET seq = 10 WHERE name = '{aTable['dbName']}'")
+  #sslDb.commit()
 
   if not aTable['insert'] : continue
   rowNum = 1
@@ -402,6 +414,7 @@ for aTable in tables :
   for aKey in sortOrder :
     aRowName = aKey
     aRowData = aTable['data'][aKey]
+    aRowData['rowNum'] = rowNum
     insertCmd = aTable['insert'].format(**aRowData)
     try :
       sslCursor.execute(insertCmd)
@@ -410,7 +423,6 @@ for aTable in tables :
       print(repr(err))
       print(yaml.dump(aRowData))
       print(insertCmd)
-    aRowData['rowNum'] = rowNum
     rowNum += 1
   sslDb.commit()
 
