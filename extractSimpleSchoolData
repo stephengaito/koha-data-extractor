@@ -1,5 +1,7 @@
 #!.venv/bin/python
 
+# TODO : items.location contains shelf/box numbers
+
 import datetime
 import os
 import sqlite3
