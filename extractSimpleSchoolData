@@ -1,6 +1,10 @@
 #!.venv/bin/python
 
-# TODO : items.location contains shelf/box numbers
+# TODO :
+#
+#  items.location contains shelf/box numbers (not yet used ;-(  )
+#  biblioitems.illus contains type of book Hardback, Paperback...
+#  items.ccode contains the type of book including our own TopicBox
 
 import datetime
 import os
