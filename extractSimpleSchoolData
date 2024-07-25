@@ -121,6 +121,10 @@ def sortBorrowers(aDict) :
 borrowersTable['sortOrder'] = sortBorrowers
 
 ##################################################################
+#
+# TO add publication date see: biblio.copyrightdate
+#  desc: publication or copyright date from the MARC record
+
 itemsInfo     = {}
 itemsInfoTable = {
   'data'   : itemsInfo,
@@ -136,7 +140,8 @@ itemsInfoTable = {
         biblioitems.volume,
         biblio.abstract,
         biblioitems.isbn,
-        biblio_metadata.metadata
+        biblio_metadata.metadata,
+        biblio.copyrightdate
       FROM biblio, biblioitems, biblio_metadata
       WHERE biblio.biblionumber = biblioitems.biblionumber
         AND biblio.biblionumber = biblio_metadata.biblionumber
@@ -150,6 +155,7 @@ itemsInfoTable = {
       	title     TEXT,
       	authors   TEXT,
       	publisher TEXT,
+      	pubDate   DATE,
       	type      TEXT,
       	keywords  TEXT,
       	summary   TEXT
@@ -157,9 +163,9 @@ itemsInfoTable = {
     """,
   'insert' : """
       INSERT INTO itemsInfo
-        (isbn, dewey, series, title, authors, publisher, type, keywords, summary)
+        (isbn, dewey, series, title, authors, publisher, pubDate, type, keywords, summary)
       VALUES
-        ('{isbn}', '{ddc}', '{seriesTitle}', '{title}', '{authors}', '{publisher}', '{itemType}', '{keywords}', '{summary}')
+        ('{isbn}', '{ddc}', '{seriesTitle}', '{title}', '{authors}', '{publisher}', '{pubDate}', '{itemType}', '{keywords}', '{summary}')
     """,
 }
 
@@ -198,6 +204,7 @@ def processAnItemInfo(aResult) :
   illus        = aResult[4]
   seriesTitle  = aResult[5]
   publisher    = aResult[6]
+  pubDate      = aResult[11]
   volume       = aResult[7]
   abstract     = aResult[8]
   isbn         = aResult[9]
