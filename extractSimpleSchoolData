@@ -233,16 +233,17 @@ def processAnItemInfo(aResult) :
   if 'unknown' in isbn : isbn = ''
 
   sslValues = {}
-  sslValues['authors']  = singleQuote(author)
-  sslValues['title'] = singleQuote(title)
+  sslValues['authors']      = singleQuote(author)
+  sslValues['title']        = singleQuote(title)
   sslValues['seriesTitle']  = singleQuote(seriesTitle)
-  sslValues['publisher'] = singleQuote(publisher)
-  sslValues['keywords'] = singleQuote(keywords)
-  sslValues['summary']  = singleQuote(summary)
-  sslValues['isbn'] = isbn
-  sslValues['ddc'] = ddc
-  sslValues['itemType'] = illus
-  itemsInfo[biblioNumber] = sslValues
+  sslValues['publisher']    = singleQuote(publisher)
+  sslValues['keywords']     = singleQuote(keywords)
+  sslValues['summary']      = singleQuote(summary)
+  sslValues['isbn']         = isbn
+  sslValues['ddc']          = ddc
+  sslValues['itemType']     = illus
+  sslValues['pubDate']      = pubDate
+  itemsInfo[biblioNumber]   = sslValues
 
 itemsInfoTable['process'] = processAnItemInfo
 
