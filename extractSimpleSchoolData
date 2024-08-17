@@ -389,12 +389,81 @@ def sortItemsBorrowed(aDict) :
 itemsBorrowedTable['sortOrder'] = sortItemsBorrowed
 
 ##################################################################
+itemsReturned = {}
+itemsReturnedTable = {
+  'data'   : itemsReturned,
+  'dbName' : 'itemsReturned',
+  'query'  : """
+      SELECT
+        issue_id, borrowernumber, itemnumber,
+        returndate, renewals_count, issuedate
+      FROM old_issues
+    """,
+  'create' : """
+      CREATE TABLE IF NOT EXISTS itemsReturned (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        borrowersId     INTEGER,
+        itemsPhysicalId INTEGER,
+        dateBorrowed    DATE,
+        dateReturned    DATE,
+        renewals        INTEGER
+      )
+    """,
+  'insert' : """
+      INSERT INTO itemsReturned
+        (borrowersId, itemsPhysicalId, dateBorrowed, dateReturned, renewals)
+      VALUES
+        ({borrowerId}, {itemsPhysicalId}, '{dateBorrowed}', '{dateReturned}', {renewals})
+    """
+}
+def processAnItemReturned(aResult) :
+  issueNumber    = aResult[0]
+  borrowerNumber = aResult[1]
+  itemNumber     = aResult[2]
+  dateReturned   = str(aResult[3]).split()[0]
+  renewals       = aResult[4]
+  dateBorrowed   = str(aResult[5]).split()[0]
+
+  if borrowerNumber not in borrowers :
+    print("----------------------------------")
+    print("NOT FOUND:")
+    print(yaml.dump(aResult))
+    return
+
+  if itemNumber not in itemsPhysical :
+    print("----------------------------------")
+    print("NOT FOUND:")
+    print(yaml.dump(aResult))
+    return
+
+  # fix broken dates (due to initial error setting up Koha)
+  if dateReturned == dateBorrowed :
+    dateReturned = aResult[5] + datetime.timedelta(days=7)
+    dateReturned = str(dateReturned).split()[0]
+
+  sslValues = {}
+  sslValues['borrowerId']      = borrowers[borrowerNumber]['rowNum']
+  sslValues['itemsPhysicalId'] = itemsPhysical[itemNumber]['rowNum']
+  sslValues['dateReturned']    = dateReturned
+  sslValues['dateBorrowed']    = dateBorrowed
+  sslValues['renewals']        = renewals
+  itemsReturned[issueNumber]   = sslValues
+
+itemsReturnedTable['process'] = processAnItemReturned
+
+def sortItemsBorrowed(aDict) :
+  return sorted(aDict.keys())
+
+itemsReturnedTable['sortOrder'] = sortItemsBorrowed
+
+##################################################################
 tables = [
   classTable,
   borrowersTable,
   itemsInfoTable,
   itemsPhysicalTable,
   itemsBorrowedTable
+  itemsReturnedTable
 ]
 
 kohaDb     = mariadb.connect(**dbConfig)
@@ -452,3 +521,5 @@ kohaDb.close()
 #print(yaml.dump(itemsPhysical))
 #print("-----------------------------------------------------")
 #print(yaml.dump(itemsBorrowed))
+#print("-----------------------------------------------------")
+#print(yaml.dump(itemsReturned))
