@@ -1,0 +1,65 @@
+#!.venv/bin/python
+
+import csv
+import datetime
+import os
+import sqlite3
+import yaml
+
+import mariadb
+
+from kohaData.configuration import dbConfig
+
+kohaDb     = mariadb.connect(**dbConfig)
+kohaCursor = kohaDb.cursor()
+
+booksTakenOut = set()
+booksNotTakenOut = []
+
+kohaCursor.execute("SELECT itemnumber FROM issues")
+results = kohaCursor.fetchall()
+for aResult in results :
+  booksTakenOut.add(aResult[0])
+
+kohaCursor.execute("SELECT itemnumber FROM old_issues")
+results = kohaCursor.fetchall()
+for aResult in results :
+  booksTakenOut.add(aResult[0])
+
+kohaCursor.execute("""
+SELECT
+  items.itemnumber, items.biblionumber, items.barcode, items.datelastseen,
+  biblio.author, biblio.title, biblio.subtitle
+FROM items, biblio
+WHERE biblio.biblionumber = items.biblionumber
+""")
+results = kohaCursor.fetchall()
+numTotalBooks = len(results)
+for aResult in results :
+  if aResult[0] in booksTakenOut : continue
+  aBook = {}
+  aBook['itemNum']   = aResult[0]
+  aBook['biblioNum'] = aResult[1]
+  aBook['barCode']   = aResult[2]
+  aBook['lastSeen']  = aResult[3].strftime('%Y-%m-%d')
+  aBook['author']    = aResult[4]
+  aBook['title']     = aResult[5]
+  if aResult[6] : aBook['title'] += ' : '+aResult[6]
+  booksNotTakenOut.append(aBook)
+
+numBooksNotTakenOut = len(booksNotTakenOut)
+
+print(numTotalBooks)
+print(numBooksNotTakenOut)
+print(numTotalBooks - numBooksNotTakenOut)
+
+with open('booksNeverTakenOut.csv', 'w', newline='') as csvFile :
+  booksWriter = csv.writer(csvFile, quoting=csv.QUOTE_ALL)
+  booksWriter.writerow(['barCode', 'lastSeen', 'author', 'title'])
+  for aBook in booksNotTakenOut :
+    aRow = []
+    aRow.append(aBook['barCode'])
+    aRow.append(aBook['lastSeen'])
+    aRow.append(aBook['author'])
+    aRow.append(aBook['title'])
+    booksWriter.writerow(aRow)
