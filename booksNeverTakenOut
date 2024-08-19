@@ -28,7 +28,9 @@ for aResult in results :
 
 kohaCursor.execute("""
 SELECT
-  items.itemnumber, items.biblionumber, items.barcode, items.datelastseen,
+  items.itemnumber, items.biblionumber,
+  items.barcode, items.datelastseen,
+  items.ccode,
   biblio.author, biblio.title, biblio.subtitle
 FROM items, biblio
 WHERE biblio.biblionumber = items.biblionumber
