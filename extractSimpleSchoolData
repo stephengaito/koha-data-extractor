@@ -2,9 +2,6 @@
 
 # TODO :
 #
-#  items.location contains shelf/box numbers (not yet used ;-(  )
-#  biblioitems.illus contains type of book Hardback, Paperback...
-#  items.ccode contains the type of book including our own TopicBox
 
 import datetime
 import os
@@ -78,7 +75,8 @@ borrowersTable = {
       SELECT
         borrowernumber,
         firstname, CONCAT(middle_name, othernames), surname,
-        categories.categorycode, categories.description, sort1
+        categories.categorycode, categories.description, sort1,
+        cardnumber
       FROM borrowers, categories
       WHERE borrowers.categorycode = categories.categorycode
     """,
@@ -88,15 +86,16 @@ borrowersTable = {
       	firstName  TEXT NOT NULL,
       	otherNames TEXT,
       	familyName TEXT NOT NULL,
+      	cardNumber TEXT NOT NULL,
       	cohort     INTEGER NOT NULL,
       	classId    INTEGER NOT NULL
       )
     """,
   'insert' : """
         INSERT INTO borrowers
-          (firstName, otherNames, familyName, cohort, classId)
+          (firstName, otherNames, familyName, cardNumber, cohort, classId)
         VALUES
-          ('{firstName}', '{otherNames}', '{familyName}', {cohort}, {classId})
+          ('{firstName}', '{otherNames}', '{familyName}', '{cardNumber}', {cohort}, {classId})
       """,
 }
 def processABorrower(aResult) :
@@ -111,6 +110,13 @@ def processABorrower(aResult) :
   sslValues['class']  = aResult[5]
   sslValues['cohort'] = aResult[6]
   if not sslValues['cohort'] : sslValues['cohort'] = 2000
+  cardNumber = aResult[7].strip()
+  if len(cardNumber) < 2 : cardNumber = '0'+cardNumber
+  if len(cardNumber) < 3 : cardNumber = '0'+cardNumber
+  if len(cardNumber) < 4 : cardNumber = '0'+cardNumber
+  if len(cardNumber) < 5 : cardNumber = '0'+cardNumber
+  sslValues['cardNumber'] = cardNumber
+
   borrowers[borrowerCode] = sslValues
 
 borrowersTable['process'] = processABorrower
@@ -121,6 +127,7 @@ def sortBorrowers(aDict) :
 borrowersTable['sortOrder'] = sortBorrowers
 
 ##################################################################
+#  biblioitems.illus contains type of book Hardback, Paperback...
 #
 # TO add publication date see: biblio.copyrightdate
 #  desc: publication or copyright date from the MARC record
@@ -253,6 +260,9 @@ def sortItemsInfo(aDict) :
 itemsInfoTable['sortOrder'] = sortItemsInfo
 
 ##################################################################
+#  items.location contains shelf/box numbers (not yet used ;-(  )
+#  items.ccode contains the type of book including our own TopicBox
+
 itemsPhysical = {}
 itemsPhysicalTable = {
   'data'   : itemsPhysical,
@@ -261,7 +271,8 @@ itemsPhysicalTable = {
       SELECT
         itemnumber, biblionumber, barcode,
         dateaccessioned, datelastborrowed, datelastseen,
-        notforloan, damaged, itemlost, withdrawn
+        notforloan, damaged, itemlost, withdrawn,
+        ccode
       FROM items
     """,
   'create' : """
@@ -272,27 +283,30 @@ itemsPhysicalTable = {
         dateAdded    DATE,
         dateBorrowed DATE,
         dateLastSeen DATE,
-        status       TEXT
+        notes        TEXT,
+        status       TEXT,
+        location     TEXT
       )
     """,
   'insert' : """
       INSERT INTO itemsPhysical
-        (itemsInfoId, barCode, dateAdded, dateBorrowed, dateLastseen, status)
+        (itemsInfoId, barCode, dateAdded, dateBorrowed, dateLastseen, notes, status, location)
       VALUES
-        ({itemsInfoId}, '{barCode}', '{dateAdded}', '{dateBorrowed}', '{dateLastSeen}', '{status}')
+        ({itemsInfoId}, '{barCode}', '{dateAdded}', '{dateBorrowed}', '{dateLastSeen}', '{notes}', '{status}', '{location}')
     """,
 }
 def processAnItemPhysical(aResult) :
-  itemNumber   = aResult[0]
-  biblioNumber = str(aResult[1])
-  barCode      = aResult[2]
-  dateAdded    = aResult[3]
-  dateBorrowed = aResult[4]
-  dateLastSeen = str(aResult[5]).split()[0]
-  notForLoan   = aResult[6]
-  damaged      = aResult[7]
-  lost         = aResult[8]
-  withdrawn    = aResult[9]
+  itemNumber     = aResult[0]
+  biblioNumber   = str(aResult[1])
+  barCode        = aResult[2]
+  dateAdded      = aResult[3]
+  dateBorrowed   = aResult[4]
+  dateLastSeen   = str(aResult[5]).split()[0]
+  notForLoan     = aResult[6]
+  damaged        = aResult[7]
+  lost           = aResult[8]
+  withdrawn      = aResult[9]
+  collectionCode = aResult[10]
 
   if biblioNumber not in itemsInfo :
     print("----------------------------------")
@@ -302,11 +316,16 @@ def processAnItemPhysical(aResult) :
 
   # compute the status
   status = ''
-  if notForLoan : status = status + 'not on loan;'
+  if notForLoan : status = status + 'not for loan;'
   if damaged    : status = status + 'damaged;'
   if lost       : status = status + 'lost;'
   if withdrawn  : status = status + 'withdrawn;'
+  if status : dateRemovedFromLibrary = dateLastSeen
   status = status.strip().strip(';')
+
+  location = ""
+  if collectionCode and 'topic' in collectionCode.lower() :
+    location = 'TopicBox'
 
   sslValues = {}
   sslValues['itemsInfoId']   = itemsInfo[biblioNumber]['rowNum']
@@ -314,7 +333,9 @@ def processAnItemPhysical(aResult) :
   sslValues['dateAdded']    = dateAdded
   sslValues['dateBorrowed'] = dateBorrowed
   sslValues['dateLastSeen'] = dateLastSeen
+  sslValues['notes']        = ""
   sslValues['status']       = status
+  sslValues['location']     = location
   itemsPhysical[itemNumber] = sslValues
 
 itemsPhysicalTable['process'] = processAnItemPhysical
@@ -397,7 +418,7 @@ itemsReturnedTable = {
   'query'  : """
       SELECT
         issue_id, borrowernumber, itemnumber,
-        returndate, renewals_count, issuedate
+        returndate, issuedate
       FROM old_issues
     """,
   'create' : """
@@ -406,15 +427,14 @@ itemsReturnedTable = {
         borrowersId     INTEGER,
         itemsPhysicalId INTEGER,
         dateBorrowed    DATE,
-        dateReturned    DATE,
-        renewals        INTEGER
+        dateReturned    DATE
       )
     """,
   'insert' : """
       INSERT INTO itemsReturned
-        (borrowersId, itemsPhysicalId, dateBorrowed, dateReturned, renewals)
+        (borrowersId, itemsPhysicalId, dateBorrowed, dateReturned)
       VALUES
-        ({borrowerId}, {itemsPhysicalId}, '{dateBorrowed}', '{dateReturned}', {renewals})
+        ({borrowerId}, {itemsPhysicalId}, '{dateBorrowed}', '{dateReturned}')
     """
 }
 def processAnItemReturned(aResult) :
@@ -422,8 +442,7 @@ def processAnItemReturned(aResult) :
   borrowerNumber = aResult[1]
   itemNumber     = aResult[2]
   dateReturned   = str(aResult[3]).split()[0]
-  renewals       = aResult[4]
-  dateBorrowed   = str(aResult[5]).split()[0]
+  dateBorrowed   = str(aResult[4]).split()[0]
 
   if borrowerNumber not in borrowers :
     print("----------------------------------")
@@ -439,7 +458,7 @@ def processAnItemReturned(aResult) :
 
   # fix broken dates (due to initial error setting up Koha)
   if dateReturned == dateBorrowed :
-    dateReturned = aResult[5] + datetime.timedelta(days=7)
+    dateReturned = aResult[4] + datetime.timedelta(days=7)
     dateReturned = str(dateReturned).split()[0]
 
   sslValues = {}
@@ -447,7 +466,6 @@ def processAnItemReturned(aResult) :
   sslValues['itemsPhysicalId'] = itemsPhysical[itemNumber]['rowNum']
   sslValues['dateReturned']    = dateReturned
   sslValues['dateBorrowed']    = dateBorrowed
-  sslValues['renewals']        = renewals
   itemsReturned[issueNumber]   = sslValues
 
 itemsReturnedTable['process'] = processAnItemReturned
@@ -458,13 +476,39 @@ def sortItemsBorrowed(aDict) :
 itemsReturnedTable['sortOrder'] = sortItemsBorrowed
 
 ##################################################################
+helpPages = {}
+helpPagesTable = {
+  'data'   : helpPages,
+  'dbName' : 'helpPages',
+  'query'  : "",
+  'create' : """
+      CREATE TABLE IF NOT EXISTS helpPages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        path    TEXT UNIQUE ON CONFLICT REPLACE NOT NULL,
+        content TEXT
+      )
+    """,
+  'insert' : ""
+}
+def processAHelpPage(aResult) :
+  pass
+
+helpPagesTable['process'] = processAHelpPage
+
+def sortItemsBorrowed(aDict) :
+  return sorted(aDict.keys())
+
+helpPagesTable['sortOrder'] = sortItemsBorrowed
+
+##################################################################
 tables = [
   classTable,
   borrowersTable,
   itemsInfoTable,
   itemsPhysicalTable,
   itemsBorrowedTable,
-  itemsReturnedTable
+  itemsReturnedTable,
+  helpPagesTable
 ]
 
 kohaDb     = mariadb.connect(**dbConfig)
@@ -477,8 +521,10 @@ for aTable in tables :
   print("----------------------------------")
   print(aTable['dbName'])
   print(aTable['query'])
-  kohaCursor.execute(aTable['query'])
-  results = kohaCursor.fetchall()
+  if not aTable['query'] : results = []
+  else :
+    kohaCursor.execute(aTable['query'])
+    results = kohaCursor.fetchall()
   numResults = 0
   for aResult in results :
     aTable['process'](aResult)
@@ -524,3 +570,5 @@ kohaDb.close()
 #print(yaml.dump(itemsBorrowed))
 #print("-----------------------------------------------------")
 #print(yaml.dump(itemsReturned))
+#print("-----------------------------------------------------")
+#print(yaml.dump(helpPages))
