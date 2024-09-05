@@ -262,6 +262,9 @@ itemsInfoTable['sortOrder'] = sortItemsInfo
 ##################################################################
 #  items.location contains shelf/box numbers (not yet used ;-(  )
 #  items.ccode contains the type of book including our own TopicBox
+#
+# FOR SOME REASON our handling (below) under represents the books
+# in the TopicBox.
 
 itemsPhysical = {}
 itemsPhysicalTable = {
